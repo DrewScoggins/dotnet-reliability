@@ -1,4 +1,4 @@
-<Project ToolsVersion="12.0" DefaultTargets="BuildAndTest" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="12.0" DefaultTargets="BuildAndTest" InitialTargets="PrintStuff" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <Import Project="$(MSBuildThisFileDirectory)dir.props" />
 
@@ -12,6 +12,7 @@
     <GeneratedRootPath Condition="'$(GeneratedRootPath)' == ''">$(MSBuildThisFileDirectory)generated/</GeneratedRootPath>
     <SuitePath Condition="'$(SuitePath)' == ''">$(GeneratedRootPath)$(SuiteName)/</SuitePath>
     <DiscoveryCachePath Condition="'$(DiscoveryCachePath)'==''">$(BaseIntermediateOutputPath)testdiscoverycache.json</DiscoveryCachePath>
+    <BuildGuid>$([System.Guid]::NewGuid())</BuildGuid>
   </PropertyGroup>
   
   <!--
@@ -22,11 +23,11 @@
   -->
   <PropertyGroup>
     <UnitTestFileMask Condition="'$(UnitTestFileMask)' == ''">*.Tests.dll</UnitTestFileMask>
-    <UnitTestDirectory Condition="'$(UnitTestDirectory)' == ''">$(MSBuildThisFileDirectory)../bin/obj/TestArchives/</UnitTestDirectory>
+    <UnitTestDirectory Condition="'$(UnitTestDirectory)' == ''">$(MSBuildThisFileDirectory)..\bin\FetchedData\$(BuildGuid)\corefx\AnyCPU-Debug\Tests\netstandard/</UnitTestDirectory>
   </PropertyGroup>
   
   <PropertyGroup>
-    <FetchedDataDir>$(MSBuildThisFileDirectory)../bin/FetchedData/</FetchedDataDir>
+    <FetchedDataDir>$(MSBuildThisFileDirectory)../bin/FetchedData/$(BuildGuid)/</FetchedDataDir>
   </PropertyGroup>
   
   <!-- 
@@ -36,12 +37,13 @@
     without affecting runs
   -->
   <PropertyGroup>
-    <StressCodegenAssmPath>$(BinDir)$(OSGroup).$(Platform).$(Configuration)\stress.codegen\stress.codegen.dll</StressCodegenAssmPath>
+    <StressCodegenAssmPath>$(MSBuildThisFileDirectory)..\src\stress.codegenCore\bin\$(Configuration)\netcoreapp2.0\stress.codegenCore.dll</StressCodegenAssmPath>
     <StressExecAssmPath>$(BinDir)$(OSGroup).$(Platform).$(Configuration)\stress.codegen\stress.execution.dll</StressExecAssmPath>
+    <StressCodegenCoreAssmPath>$(MSBuildThisFileDirectory)\stress.codegenCore\bin\$(Configuration)\netcoreapp2.0\stress.codegenCore.dll</StressCodegenCoreAssmPath>
   </PropertyGroup>
   <PropertyGroup>
     <UnitTestPackageDir>$(MSBuildThisFileDirectory)../packages/</UnitTestPackageDir>
-    <UnitTestExtractDir>$(BaseIntermediateOutputPath)utextracted/</UnitTestExtractDir>
+    <UnitTestExtractDir>$(BaseIntermediateOutputPath)utextracted/$(BuildGuid)/</UnitTestExtractDir>
     <UnitTestExtractedSemaphore>$(UnitTestExtractDir)extraction.complete</UnitTestExtractedSemaphore>
     <UnitTestDependsBin>$(BaseIntermediateOutputPath)utdepends/</UnitTestDependsBin>
   </PropertyGroup>
@@ -66,15 +68,15 @@
       <CloudDropAccessToken>$(CoreFxCloudDropAccessToken)</CloudDropAccessToken>
       <TestStorageAccountKey>$(CoreFxCloudDropAccessToken)</TestStorageAccountKey>
     </Repos>
-    <Repos Include="coreclr" >
+    <!-- <Repos Include="coreclr" >
       <SubType>$(SubType)</SubType>
       <CloudDropAccessToken>$(CoreClrCloudDropAccessToken)</CloudDropAccessToken>
       <TestStorageAccountKey>$(CoreClrCloudDropAccessToken)</TestStorageAccountKey>
-    </Repos>
+    </Repos> -->
     <TestRepos Include="corefx" />
   </ItemGroup>
   <PropertyGroup>
-    <BranchName>master</BranchName>
+    <BranchName>release/2.0.0</BranchName>
     <SelectedConfigurationGroup>Debug</SelectedConfigurationGroup>
     <SubType>native</SubType>
   </PropertyGroup>
@@ -84,13 +86,14 @@
   <Import Project="$(ToolsDir)Build.Post.targets" Condition="Exists('$(ToolsDir)Build.Post.targets')" />
   
   <ItemGroup> 
-     <TestCommandLines Condition="'$(TargetOS)'!='Windows_NT'" Include="chmod +x corerun" /> 
+     <TestCommandLines Condition="'$(TargetOS)'!='Windows_NT'" Include="chmod +x corerun" />
    </ItemGroup>
 
   <UsingTask TaskName="GenerateStressSuiteTask" AssemblyFile="$(StressCodegenAssmPath)"/>
   <UsingTask TaskName="RetreiveBuildContainerInformation" AssemblyFile="$(StressCodegenAssmPath)"/>
-  <UsingTask TaskName="DownloadFromAzure" AssemblyFile="$(BuildToolsTaskDir)Microsoft.DotNet.Build.CloudTestTasks.dll"/>
-  <UsingTask TaskName="ZipFileExtractToDirectory" AssemblyFile="$(BuildToolsTaskDir)Microsoft.DotNet.Build.Tasks.dll"/>
+  <UsingTask TaskName="DownloadFromAzure" AssemblyFile="$(ToolsDir)Microsoft.DotNet.Build.CloudTestTasks.dll"/>
+  <UsingTask TaskName="ZipFileExtractToDirectory" AssemblyFile="$(MSBuildStartupDirectory)\Tools\Microsoft.DotNet.Build.Tasks.dll"/>
+  <UsingTask TaskName="ZipFileCreateFromDirectory" AssemblyFile="$(MSBuildStartupDirectory)\Tools\Microsoft.DotNet.Build.Tasks.dll"/>
 
   <ItemGroup>
     <JsonFile Include="$(UnitTestDirectory)**\project.json"/>
@@ -102,12 +105,26 @@
     <ExcludedTestAssemblies>$(ExcludedTestAssemblies);$(UnitTestDirectory)System.Reflection.Emit.ILGeneration.Tests.zip</ExcludedTestAssemblies>
     <ExcludedTestAssemblies>$(ExcludedTestAssemblies);$(UnitTestDirectory)System.Reflection.Emit.Lightweight.Tests.zip</ExcludedTestAssemblies>
     <ExcludedTestAssemblies>$(ExcludedTestAssemblies);$(UnitTestDirectory)System.Reflection.Emit.Tests.zip</ExcludedTestAssemblies>
+    <ArchivesRoot>$(MSBuildStartupDirectory)\testZips\$(BuildGuid)\</ArchivesRoot>
+    <TestRuntimeOS Condition="'$(OperatingSystem)' == 'Windows'">Windows_NT</TestRuntimeOS>
+    <TestRuntimeOS Condition="'$(OperatingSystem)' != 'Windows'">$(OperatingSystem)</TestRuntimeOS>
+    <TestRuntimeArchivePath>$(FetchedDataDir)corefx</TestRuntimeArchivePath>
+    <TestRuntimeArchiveFilepath>$(TestRuntimeArchivePath)\test-runtime-netcoreapp-$(TestRuntimeOS)-Debug-$(Architecture).zip</TestRuntimeArchiveFilepath>
+    <CloudDropAccountName>dotnetbuilddrops</CloudDropAccountName>
+    
+    <CloudResultsAccountName>dotnetjobresults</CloudResultsAccountName>
+    
+    <CloudDropConnectionString    Condition="'$(CloudDropConnectionString)'==''"   >DefaultEndpointsProtocol=https;AccountName=$(CloudDropAccountName);AccountKey=$(CloudDropAccessToken);EndpointSuffix=core.windows.net</CloudDropConnectionString>
+    <CloudResultsConnectionString Condition="'$(CloudResultsConnectionString)'==''">DefaultEndpointsProtocol=https;AccountName=$(CloudResultsAccountName);AccountKey=$(CloudResultsAccessToken);EndpointSuffix=core.windows.net</CloudResultsConnectionString>
   </PropertyGroup> 
   
   <ItemGroup>
     <ZipFile Include="$(UnitTestDirectory)*.zip" Exclude="$(ExcludedTestAssemblies)"/>
   </ItemGroup>
 
+  <Target Name="PrintStuff" DependsOnTargets="GetRepoProduct">
+    <Message Text="Unzipping tests: @(ZipFile)" Importance="High" />
+  </Target>
  <Target Name="UnzipAllTests" 
     Condition="!Exists('$(UnitTestExtractedSemaphore)')"
     DependsOnTargets="UnzipTest">
@@ -130,6 +147,8 @@
          to avoid restoring time to just get a project.json and lockfile
          Query engineering infrastructure for latest build moniker if not set
     -->
+  
+  
   <Target Name="GetRepoProduct" 
           Inputs="%(Repos.Identity)"
           Outputs="CompletedDownloads" 
@@ -150,6 +169,17 @@
     -->
     <PropertyGroup>
       <CurrentRepo>%(Repos.Identity)</CurrentRepo>
+      <HelixJobType Condition="'$(HelixJobType)'==''">test/stress/</HelixJobType>
+      <HelixSource Condition="'$(HelixSource)'==''">pr/stress/</HelixSource>
+      <HelixArchLabel>$(Architecture)</HelixArchLabel>
+      <HelixConfigLabel>$(ConfigurationGroup)</HelixConfigLabel>
+      <CurrentDate>$([System.DateTime]::Now.ToString(yyyyMMdd.mmss))</CurrentDate>
+      <BuildMoniker>$(CurrentDate)</BuildMoniker>
+      <HelixLogFolder>$(MSBuildStartupDirectory)\testZips\$(BuildGuid)\helixLogs\</HelixLogFolder>
+      <OverwriteOnUpload>true</OverwriteOnUpload>
+      <HelixApiEndpoint>https://helix.dot.net/api/2016-06-28/jobs</HelixApiEndpoint>
+      <SubTypeForBuildContainer Condition="'$(SubType)' != '' and '$(OperatingSystem)' == 'Linux'"></SubTypeForBuildContainer>
+      <SubTypeForBuildContainer Condition="'$(OperatingSystem)' == 'Windows'">$(SubType)</SubTypeForBuildContainer>
     </PropertyGroup>
     <Message Importance="High" Text="Gathering build information for %(Repos.Identity) ..." />
     <RetreiveBuildContainerInformation
@@ -160,8 +190,7 @@
         OperatingSystem="$(OperatingSystem)"
         ConfigurationGroup="%(Repos.SelectedConfigurationGroup)"
         Platform="$(Architecture)"
-        SubType="%(Repos.SubType)"
-        BuildNumber="$(BuildMoniker)"
+        SubType="$(SubTypeForBuildContainer)"
         TestStorageAccountKey="%(Repos.TestStorageAccountKey)"
         >
       <Output TaskParameter="ProductStorageAccount"
@@ -179,26 +208,27 @@
     <RemoveDir Directories="$(FetchedDataDir)" Condition="!Exists('$(FetchedDataDir)')" />
     <MakeDir Directories="$(FetchedDataDir)" />
     
-    <Message Importance="High" Text="$(CurrentRepo) Product SA: $(_EvaluatedProductStorageAccount) Product Container:$(_EvaluatedProductContainerName) Test SA: $(_EvaluatedTestStorageAccount) Test Container:$(_EvaluatedTestContainerName) " />
+    <Message Importance="High" Text="$(CurrentRepo) Product SA: $(_EvaluatedProductStorageAccount) Product Container:$(_EvaluatedProductContainerName) Test SA: $(_EvaluatedTestStorageAccount) Test Container:$(_EvaluatedTestContainerName) Stuff: %(Repos.CloudDropAccessToken)" />
     <Message Importance="High" Text="Downloading $(CurrentRepo) Product ... " />
     
     <DownloadFromAzure AccountName="$(_EvaluatedProductStorageAccount)"
                        AccountKey="%(Repos.CloudDropAccessToken)"
-                       ContainerName="$(_EvaluatedProductContainerName)"
+                       ContainerName="$(_EvaluatedTestContainerName)"
+                       BlobNamePrefix="AnyCPU"
                        DownloadDirectory="$(FetchedDataDir)%(Repos.Identity)" />
-    
-    <Message Importance="High" Text="Downloading $(CurrentRepo) Test ... " Condition="'%(TestRepos.Identity)'=='$(CurrentRepo)'"/>
-    <DownloadFromAzure AccountName="$(_EvaluatedTestStorageAccount)"
-                   AccountKey="%(Repos.CloudDropAccessToken)"
-                   ContainerName="$(_EvaluatedTestContainerName)"
-                   DownloadDirectory="$(FetchedDataDir)tests/%(TestRepos.Identity)" 
-                   Condition="'%(TestRepos.Identity)'=='$(CurrentRepo)'" />
+    <!-- <DownloadFromAzure AccountName="$(_EvaluatedProductStorageAccount)"
+                       AccountKey="%(Repos.CloudDropAccessToken)"
+                       ContainerName="$(_EvaluatedTestContainerName)"
+                       BlobNamePrefix="test-runtime"
+                       DownloadDirectory="$(TestRuntimeArchivePath)" /> -->
+    <Copy SourceFiles="C:\work\Stress\$(OperatingSystem)-checked-runtime-$(Architecture).zip" DestinationFiles="$(TestRuntimeArchiveFilepath)"/>
                    
     <ItemGroup>
       <CompletedDownloads Include="%(Repos.Identity)" Condition="Exists('$(FetchedDataDir)%(Repos.Identity)')">
         <Semaphore>true</Semaphore>
         <TestPattern>$(_EvaluatedTestPattern)</TestPattern>
       </CompletedDownloads>
+      <ZipFile Include="$(UnitTestDirectory)*.zip" Exclude="$(ExcludedTestAssemblies)"/>
     </ItemGroup>
   </Target>
 
@@ -210,7 +240,9 @@
     <MakeDir Directories="$(StressGeneratedRoot)"/>
     
     <Message Text="Generating stress test sources..." Importance="High" />
-       
+    
+    
+    <!-- <Exec Command="dotnet $(StressCodegenCoreAssmPath) $(SuiteName) $(SuitePath) $(UnitTestExtractDir) $(UnitTestFileMask) $(UnitTestDependsBin) $(SuiteConfigPath) $(DiscoveryCachePath) false $(DebugStress)" />-->
     <GenerateStressSuiteTask
       SuiteName="$(SuiteName)"
       DebugWaitForInput="$(DebugStress)"
@@ -225,17 +257,52 @@
   </Target>
 
   <Target Name="Build" DependsOnTargets="GenerateStressSuiteSource">
+  <ItemGroup>
+      
+    </ItemGroup>
+    <CallTarget Targets="BuildHelixZips"/>
+    <CallTarget Targets="HelixCloudBuild" />
+  </Target>
+
+  
+  <Target Name="BuildHelixZips">
     <ItemGroup>
       <GeneratedProjects Include="$(SuitePath)**\*.csproj"/>
     </ItemGroup>
 
+    <Exec Command="dotnet restore %(GeneratedProjects.Identity)"/>
     <MSBuild Targets="Build"
       Projects="@(GeneratedProjects)"
       BuildInParallel="true"
       ContinueOnError="true"
       Properties="$(GeneratedProjectBuildProps)"/>
+    <ZipFileCreateFromDirectory
+      SourceDirectory="%(GeneratedProjects.RelativeDir)"
+      DestinationArchive="$(ArchivesRoot)\$([System.IO.Path]::GetFileNameWithoutExtension('%(GeneratedProjects.Identity)')).zip"
+      OverwriteDestination="true" />
+    <ItemGroup>
+      <HelixWorkItem Include="$(ArchivesRoot)\*.zip" />
+    </ItemGroup>
+    <ItemGroup>
+      <HelixWorkItem>
+        <Command Condition="'$(OperatingSystem)' == 'Windows'">stress.bat</Command>
+        <Command Condition="'$(OperatingSystem)' != 'Windows'">chmod +x stress.sh &amp;&amp; ./stress.sh</Command>
+        <PayloadFile>%(Identity)</PayloadFile>
+        <WorkItemId>%(Filename)</WorkItemId>
+        <TimeoutInSeconds>86400</TimeoutInSeconds>
+      </HelixWorkItem>
+    <HelixCorrelationPayloadFile Include="$(TestRuntimeArchiveFilepath)" />
+    </ItemGroup>
+    <PropertyGroup>
+      <IsOfficial>false</IsOfficial>
+      
+      
+      
+      
+      
+    </PropertyGroup>
   </Target>
-
+  <Import Project="$(ToolsDir)CloudTest.Helix.targets" />
   <Target Name="Clean">
     
     <Message Text="Cleaning generated projects..." />

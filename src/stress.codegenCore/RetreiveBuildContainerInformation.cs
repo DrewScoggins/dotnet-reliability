@@ -47,7 +47,8 @@ namespace stress.codegen
 
         public override bool Execute()
         {
-            Debugger.Launch();
+            //Debugger.Launch();
+            Console.ReadLine();
             buildMap = new BuildMaps();
             GetLatestBuilds();
            return !Log.HasLoggedErrors;
@@ -61,15 +62,14 @@ namespace stress.codegen
                 buildMap.BuildNumber = BuildNumber;
             }
             //Product build
-            string dotnetMCUrl = $"https://helix.dot.net/api/2017-01-20/aggregate/analysisdetail?analysisName=Visual+Studio+Build+Information&analysisType=external&build={ BuildNumber }&groupBy=job.properties.operatingSystem&groupBy=job.properties.subType&groupBy=job.properties.configurationGroup&groupBy=job.properties.platform&source=official%2F{Repo}%2F{Branch}%2F&type=build%2Fproduct%2F&workitem=Orchestration";
+            string dotnetMCUrl = $"https://helix.dot.net/api/2016-08-25/aggregate/analysisdetail?analysisName=Visual+Studio+Build+Information&analysisType=external&build={ BuildNumber }&groupBy=job.properties.operatingSystem&groupBy=job.properties.subType&groupBy=job.properties.configurationGroup&groupBy=job.properties.platform&source=official%2F{Repo}%2F{Branch}%2F&type=build%2Fproduct%2F&workitem=Orchestration";
             try
             {
                 string value = string.Empty;
                 using (HttpClient client = new HttpClient())
                 {
                     client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-                    client.DefaultRequestHeaders.Add("Authentication", string.Format("{0} {1}", "token", HelixAPIKey));
-                    using (HttpResponseMessage response = client.GetAsync(dotnetMCUrl).Result)
+                    using (HttpResponseMessage response = client.GetAsync(String.Format("{0}&access_token={1}", dotnetMCUrl, HelixAPIKey)).Result)
                     {
                         response.EnsureSuccessStatusCode();
                         value = response.Content.ReadAsStringAsync().Result;
@@ -121,6 +121,14 @@ namespace stress.codegen
                 Log.LogError(ex.ToString());
             }
 
+            foreach (var a in buildMap.buildmap.Keys)
+            {
+                if(buildMap.buildmap[a].ProductDropContainer != null)
+                {
+                    Log.LogMessage(buildMap.buildmap[a].ProductDropContainer + " " + a);
+                }
+            }
+
             //Grab Test zips for OperatingSystem
             List<string> potentialTestZips = new List<string>();
             BuildContainerInformation bc;
@@ -135,7 +143,9 @@ namespace stress.codegen
             else
             {
                 bcProduct = null;
-                bc = buildMap.buildmap[string.Join("-", OperatingSystem, ConfigurationGroup, Platform, SubType)];
+                //HACK
+                bc = buildMap.buildmap["Linux-Debug-x64-"];
+                //bc = buildMap.buildmap[string.Join("-", OperatingSystem, ConfigurationGroup, Platform, SubType)];
                 potentialTestZips = RetreiveBlobNames.GetBlobs(bc.ProductDropStorageAccount, TestStorageAccountKey, bc.ProductDropContainer);
             }
 
@@ -157,10 +167,10 @@ namespace stress.codegen
             
             //Setup output parameters
             TestPattern = testPattern;
-            ProductStorageAccount = bc.ProductDropStorageAccount == null ? bcProduct.TestDropStorageAccount : bc.TestDropStorageAccount;
-            ProductContainerName = bc.ProductDropContainer == null ? bcProduct.TestDropStorageAccount : bc.TestDropStorageAccount;
-            TestStorageAccount = bc.TestDropStorageAccount==null ? string.Empty : bc.TestDropStorageAccount;
-            TestContainerName = bc.TestDropContainer==null ? string.Empty : bc.TestDropContainer;
+            ProductStorageAccount = bc.ProductDropStorageAccount;
+            ProductContainerName = bc.ProductDropContainer;
+            TestStorageAccount = bc.ProductDropStorageAccount;
+            TestContainerName = bc.ProductDropContainer;
         }
 
         private void GetLatestBuildNumber()
@@ -172,8 +182,7 @@ namespace stress.codegen
                 using (HttpClient client = new HttpClient())
                 {
                     client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-                    client.DefaultRequestHeaders.Add("Authentication", string.Format("{0} {1}", "token", HelixAPIKey));
-                    using (HttpResponseMessage response = client.GetAsync(GetBuildNumberUrl).Result)
+                    using (HttpResponseMessage response = client.GetAsync(String.Format("{0}&access_token={1}", GetBuildNumberUrl, HelixAPIKey)).Result)
                     {
                         response.EnsureSuccessStatusCode();
                         value = response.Content.ReadAsStringAsync().Result;
@@ -182,7 +191,15 @@ namespace stress.codegen
                     JArray buildapiObject = (JArray)JsonConvert.DeserializeObject(value);
                     //Grab latest one
                     //TODO: Grab latest passing one?
-                    BuildNumber = buildapiObject[0]["Key"]["job.build"].ToString();
+                    
+                    foreach(var buildApi in buildapiObject)
+                    {
+                        if(buildApi["Data"]["Analysis"][0]["Status"]["fail"] == null)
+                        {
+                            BuildNumber = buildApi["Key"]["job.build"].ToString();
+                            break;
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -203,19 +220,20 @@ namespace stress.codegen
                 {
                     if (i == 0)
                     {
-                        b.TestDropContainer = m.Groups[1].Value;
-                        b.TestDropStorageAccount = m.Groups[2].Value;
+                        b.ProductDropContainer = m.Groups[1].Value;
+                        b.ProductDropStorageAccount = m.Groups[2].Value;
+                        
                     }
                     //Assumption that SendToHelix api order printed out doesn't change. 
                     if (i == 1)
                     {
-                        b.TestResultsContainer = m.Groups[1].Value;
-                        b.TestResultsStorageAccount = m.Groups[2].Value;
+                        b.TestDropContainer = m.Groups[1].Value;
+                        b.TestDropStorageAccount = m.Groups[2].Value;
                     }
                     if (i == 2)
                     {
-                        b.ProductDropContainer = m.Groups[1].Value;
-                        b.ProductDropStorageAccount = m.Groups[2].Value;
+                        b.TestResultsContainer = m.Groups[1].Value;
+                        b.TestResultsStorageAccount = m.Groups[2].Value;
                     }
                     i++;
                 }

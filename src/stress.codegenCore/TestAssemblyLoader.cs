@@ -1,0 +1,181 @@
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
+using Newtonsoft.Json;
+using stress.codegen.utils;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+using System.Runtime.Loader;
+using stress.codegenCore;
+
+namespace stress.codegen
+{
+    public class TestAssemblyLoader
+    {
+        private TestAssemblyInfo _assembly;
+
+
+        public string AssemblyPath { get; set; }
+
+        public string LoadError { get; set; }
+
+        public string[] HintPaths { get; set; }
+        public TestAssemblyLoaderContext  LoadContext { get; set; }
+
+        public IEnumerable<string> SearchPaths
+        {
+            get
+            {
+                return new string[] { Path.GetDirectoryName(this.AssemblyPath) }.Concat(this.HintPaths);
+            }
+        }
+        
+
+        public bool Load(string assemblyPath, string[] hintPaths)
+        {
+            this.AssemblyPath = assemblyPath;
+
+            this.HintPaths = hintPaths;
+
+            this.LoadError = null;
+
+            this.LoadContext = new TestAssemblyLoaderContext(assemblyPath, hintPaths);
+
+            //AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += IsoDomain_ReflectionOnlyAssemblyResolve;
+
+            try
+            {
+                _assembly = new TestAssemblyInfo() { Assembly = LoadContext.LoadFromAssemblyPath(this.AssemblyPath), ReferenceInfo = new TestReferenceInfo(), PackageInfo = LoadPackageRefs(this.AssemblyPath) };
+                
+                foreach (var refName in _assembly.Assembly.GetReferencedAssemblies())
+                {
+                    this.AddTestReferenceAssembly(refName);
+                }
+            }
+            catch (Exception e)
+            {
+                this.LoadError = e.ToString();
+            }
+
+            return this.LoadError == null;
+        }
+
+        private static ProjectJsonDependencyInfo LoadPackageRefs(string assemblyPath)
+        {
+            var projJsonPath = Path.Combine(Path.GetDirectoryName(assemblyPath), "project.json");
+
+            return ProjectJsonDependencyInfo.FromFile(projJsonPath);
+        }
+
+        public void AddTestReferenceAssembly(AssemblyName refAssm)
+        {
+            //if the assembly isn't a banned reference
+            if (!s_bannedRefs.Contains(refAssm.Name.ToLowerInvariant()))
+            { 
+                //try to find the assembly
+                string assmPath = FindReferenceAssemblyInPaths(refAssm.Name, this.SearchPaths);
+
+                if (assmPath != null && File.Exists(assmPath))
+                {
+                    //if the assembly is available in the packages add to the framework reference list for legacy projects
+                    //(in new projects these will be added through project.json refs)
+                    if (!assmPath.StartsWith(Path.GetDirectoryName(this.AssemblyPath)))
+                    {
+                        _assembly.ReferenceInfo.FrameworkReferences.Add(new AssemblyReference() { Path = assmPath, Version = refAssm.Version.ToString() });
+                    }
+                    else
+                    {
+                        //if the assembly lives next to the test it is a test specific dependancy not a framework dependency            
+                        _assembly.ReferenceInfo.ReferencedAssemblies.Add(new AssemblyReference() { Path = assmPath, Version = refAssm.Version.ToString() });
+                    }
+                }
+            }
+        }
+
+        private static string FindReferenceAssemblyInPaths(string assmName, IEnumerable<string> paths)
+        {
+            string assmPath = null;
+            string assmDllFile = assmName + ".dll";
+            string assmExeFile = assmName + ".exe";
+
+            foreach(var searchPath in paths)
+            {
+                assmPath = Directory.EnumerateFiles(searchPath, assmDllFile, SearchOption.AllDirectories).FirstOrDefault() ?? Directory.EnumerateFiles(searchPath, assmExeFile, SearchOption.AllDirectories).FirstOrDefault();
+
+                if(assmPath != null)
+                {
+                    break;
+                }
+            }
+
+            return assmPath;
+        }
+
+        public string GetTests<TDiscoverer>()
+            where TDiscoverer : ITestDiscoverer, new()
+        {
+            try
+            {
+                var discoverer = new TDiscoverer();
+
+                var tests = discoverer.GetTests(_assembly);
+
+                if (tests.Length > 0)
+                {
+                    CodeGenOutput.Info($"{_assembly.Assembly.FullName}: {tests.Length} tests discovered from assembly");
+                }
+
+                return JsonConvert.SerializeObject(tests);
+            }
+            catch (Exception e)
+            {
+                this.LoadError = (this.LoadError ?? string.Empty) + e.ToString();
+            }
+
+            return JsonConvert.SerializeObject(new UnitTestInfo[] { });
+        }
+
+        /*private Assembly IsoDomain_ReflectionOnlyAssemblyResolve(object sender, ResolveEventArgs args)
+        {
+            Assembly assm = null;
+            if (!s_loaded.TryGetValue(args.Name, out assm))
+            {
+                //try to find the assembly
+                string assmPath = FindReferenceAssemblyInPaths(new AssemblyName(args.Name).Name, this.SearchPaths);
+                
+                try
+                {
+                    assm = Assembly.ReflectionOnlyLoadFrom(assmPath);
+                    
+                    s_loaded[args.Name] = assm;
+
+                    return assm;
+                }
+                catch
+                {
+                }
+            }
+            return assm;
+        }*/
+        
+        private void AddTestAssemblyReference(Assembly assembly)
+        {
+            if (assembly.GetName().Name.ToLowerInvariant() != "mscorlib")
+            {
+                _assembly.ReferenceInfo.ReferencedAssemblies.Add(new AssemblyReference() { Path = assembly.Location, Version = assembly.GetName().Version.ToString() });
+            }
+        }
+        
+        internal static Dictionary<string, string> g_ResolvedAssemblies = new Dictionary<string, string>();
+        private static Dictionary<string, Assembly> s_loaded = new Dictionary<string, Assembly>();
+        private static HashSet<string> s_knownTestRefs = new HashSet<string>(new string[] { "System.Xml.RW.XmlReaderLib" });
+
+        private readonly static string[] s_bannedRefs = { "mscorelib" };
+    }
+}
